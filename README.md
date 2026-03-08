@@ -12,7 +12,7 @@ This is a research project exploring transformer-based approaches to automatic s
 
 Medical literature is vast and growing rapidly. Clinicians and researchers struggle to synthesize evidence across multiple studies efficiently. SumMedi investigates whether fine-tuned transformer models wrapped in GAN architectures can produce accurate, coherent summaries of medical texts and reduce hallucination during text generation.
 
-This repository aims to contain the entire Generator Adversarial Network architecture (BART as Generator and BioBERT as Discriminator) to summarize medical text documents. BART known for its text generation capabilitied will try to generate best abstractive summaries while BioBERT which is domain specific in bio-medical data will help judge and evaluate the summaries.
+This repository aims to contain the entire Generator Adversarial Network architecture (BART as Generator and BioBERT as Discriminator) to summarize medical text documents. BART known for its text generation capabilities will generate best abstractive summaries while BioBERT which is domain specific in bio-medical data will help judge and evaluate the summaries.
 Together, BART (generator) and BioBERT (discriminator) wrapped in a GAN architecture will complement each other's abilities to generate accurate summaries with drastic reduction in hallucinations.
 
 ---
