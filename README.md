@@ -38,13 +38,13 @@ SumMedi/
 
 ## Models
 
-### BART (this repo — `initial_bart_base_test/`)
+### BART
 - **Base model:** `facebook/bart-base`
 - **Dataset:** MS2 multi-document summarization dataset
 - **Task:** Abstractive summarization of systematic review evidence
 - **Approach:** Fine-tune BART on properly extracted source/target pairs from MS2, where source = concatenated study abstracts from included clinical trials, and target = the Cochrane review abstract
 
-### BioBERT (teammate's work)
+### BioBERT
 - Domain-adapted BERT model pre-trained on biomedical text
 - Used for a complementary summarization/extraction approach on the same dataset
 - See teammate's folder for details
