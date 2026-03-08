@@ -1,6 +1,7 @@
 # SumMedi — Medical Text Summarization
 
 Recent transformer models such as BART and PEGASUS have improved abstractive text summarization, but they often face factual hallucinations, especially in high-stakes domains like biomedical text. Previous adversarial approaches for summarization have shown improvements in general summary quality, but most rely on pre-transformer architectures like LSTM/CNN and focus on news datasets rather than domain specific factual consistency.
+
 To address this limitation, this work proposes a GAN-transformer framework for single document medical summarization. A pretrained transformer (BART or PEGASUS) serves as the generator, while a BioBERT-based domain specific discriminator evaluates factual consistency between the source document and the generated summary. The generator is trained using both maximum likelihood and adversarial objectives, encouraging summaries that are fluent and factually aligned. This approach aims to reduce hallucination and improve reliability in biomedical summarization through quantitative evaluation metrics like ROUGE scores and qualitative analysis.
 
 This is a research project exploring transformer-based approaches to automatic summarization of medical literature, with a focus on multi-document clinical evidence synthesis.
