@@ -10,9 +10,10 @@ This is a research project exploring transformer-based approaches to automatic s
 
 ## Overview
 
-Medical literature is vast and growing rapidly. Clinicians and researchers struggle to synthesize evidence across multiple studies efficiently. SumMedi investigates whether fine-tuned transformer models can produce accurate, coherent summaries of medical texts — specifically systematic reviews and multi-document clinical evidence.
+Medical literature is vast and growing rapidly. Clinicians and researchers struggle to synthesize evidence across multiple studies efficiently. SumMedi investigates whether fine-tuned transformer models wrapped in GAN architectures can produce accurate, coherent summaries of medical texts and reduce hallucination during text generation.
 
-This repository contains two parallel model pipelines that were developed and evaluated independently, with the goal of comparing extractive/abstractive summarization approaches on the same dataset.
+This repository aims to contain the entire Generator Adversarial Network architecture (BART as Generator and BioBERT as Discriminator) to summarize medical text documents. BART known for its text generation capabilitied will try to generate best abstractive summaries while BioBERT which is domain specific in bio-medical data will help judge and evaluate the summaries.
+Together, BART (generator) and BioBERT (discriminator) wrapped in a GAN architecture will complement each other's abilities to generate accurate summaries with drastic reduction in hallucinations.
 
 ---
 
@@ -40,15 +41,15 @@ SumMedi/
 ## Models
 
 ### BART
-- **Base model:** `facebook/bart-base`
+- **Generator model:** `facebook/bart-base`
 - **Dataset:** MS2 multi-document summarization dataset
 - **Task:** Abstractive summarization of systematic review evidence
 - **Approach:** Fine-tune BART on properly extracted source/target pairs from MS2, where source = concatenated study abstracts from included clinical trials, and target = the Cochrane review abstract
 
 ### BioBERT
 - Domain-adapted BERT model pre-trained on biomedical text
-- Used for a complementary summarization/extraction approach on the same dataset
-- See teammate's folder for details
+- Used as discriminator in GAN architecture to classify real and generated summaries.
+
 
 ---
 
