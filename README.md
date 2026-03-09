@@ -14,29 +14,7 @@ Medical literature is vast and growing rapidly. Clinicians and researchers strug
 
 This repository aims to contain the entire Generator Adversarial Network architecture (BART as Generator and BioBERT as Discriminator) to summarize medical text documents. BART known for its text generation capabilities will generate best abstractive summaries while BioBERT which is domain specific in bio-medical data will help judge and evaluate the summaries.
 Together, BART (generator) and BioBERT (discriminator) wrapped in a GAN architecture will complement each other's abilities to generate accurate summaries with drastic reduction in hallucinations.
-
----
-
-## Repository Structure
-
-```
-SumMedi/
-├── initial_bart_base_test/          # BART fine-tuned on MS2 (abstractive summarization)
-│   ├── bart_ms2_training.ipynb      # Full training pipeline
-│   ├── final_model/                 # Model config & tokenizer (weights shared separately)
-│   ├── ms2_train_processed.csv      # Cleaned training pairs
-│   ├── ms2_val_processed.csv        # Cleaned validation pairs
-│   ├── ms2_test_processed.csv       # Cleaned test pairs
-│   └── README.md                    # Detailed notes for this approach
-│
-├── two_stage_pubmed_ms2_attempt/    # Attempted 2-stage pipeline (PubMed → MS2)
-│   ├── two_stage_bart_ms2.ipynb     # Training notebook with documented issues
-│   └── README.md                    # What was attempted and why it didn't work
-│
-└── README.md                        # This file
-```
-
----
+x
 
 ## Models
 
