@@ -2,7 +2,7 @@ import json
 import re
 import textwrap
 import numpy as np
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_core.language_models.chat_models import BaseChatModel
 from scipy.spatial.distance import cosine
 
 from data_models import Entity, Relationship, MetaMedGraph, UMLS_SEMANTIC_TYPES, MEDICAL_TAGS
@@ -41,7 +41,7 @@ class EmbeddingStore:
         return float(1.0 - cosine(va, vb))
 
 
-def _call_llm_json(llm: ChatOpenAI, prompt: str) -> dict | list:
+def _call_llm_json(llm: BaseChatModel, prompt: str) -> dict | list:
     """Call LLM and parse JSON from the response."""
     resp = llm.invoke(prompt)
     raw = resp.content.strip()
@@ -58,7 +58,7 @@ def _call_llm_json(llm: ChatOpenAI, prompt: str) -> dict | list:
         return {}
 
 
-def _extract_entities(llm: ChatOpenAI, chunk_text: str) -> list[Entity]:
+def _extract_entities(llm: BaseChatModel, chunk_text: str) -> list[Entity]:
     semantic_types_str = ", ".join(UMLS_SEMANTIC_TYPES)
     prompt = textwrap.dedent(f"""
         You are a biomedical NLP expert. Extract all medically relevant entities from the text below.
@@ -88,7 +88,7 @@ def _extract_entities(llm: ChatOpenAI, chunk_text: str) -> list[Entity]:
 
 
 def _extract_relationships(
-    llm: ChatOpenAI, chunk_text: str, entities: list[Entity]
+    llm: BaseChatModel, chunk_text: str, entities: list[Entity]
 ) -> list[Relationship]:
     entity_names = [e.name for e in entities]
     if len(entity_names) < 2:
@@ -122,7 +122,7 @@ def _extract_relationships(
     return rels
 
 
-def _tag_graph(llm: ChatOpenAI, graph: MetaMedGraph) -> dict[str, str]:
+def _tag_graph(llm: BaseChatModel, graph: MetaMedGraph) -> dict[str, str]:
     entity_texts = "\n".join(
         f"- {e.name} ({e.entity_type}): {e.context}" for e in graph.entities
     )
@@ -145,7 +145,7 @@ def _tag_graph(llm: ChatOpenAI, graph: MetaMedGraph) -> dict[str, str]:
 
 
 def _generate_answer(
-    llm: ChatOpenAI,
+    llm: BaseChatModel,
     question: str,
     graph: MetaMedGraph,
     top_entities: list[Entity],
@@ -198,7 +198,7 @@ def _generate_answer(
 
 
 def _refine_answer(
-    llm: ChatOpenAI, question: str, prev_response: str, summary: dict[str, str]
+    llm: BaseChatModel, question: str, prev_response: str, summary: dict[str, str]
 ) -> str:
     summary_text = "\n".join(f"  {k}: {v}" for k, v in summary.items())
     prompt = textwrap.dedent(f"""

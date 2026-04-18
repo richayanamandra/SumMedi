@@ -1,0 +1,14 @@
+streamlit
+pyvis
+langchain
+langchain-community
+langchain-openai
+langchain-huggingface
+langchain-ollama
+python-dotenv
+neo4j
+sentence-transformers
+networkx
+numpy
+scipy
+torch

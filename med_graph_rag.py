@@ -9,7 +9,8 @@ from typing import Optional
 import networkx as nx
 import numpy as np
 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from data_models import Entity, Relationship, MetaMedGraph, MEDICAL_TAGS, BUILTIN_VOCAB
@@ -45,8 +46,8 @@ class MedGraphRAG:
 
     def __init__(
         self, 
-        llm: ChatOpenAI, 
-        embedder: OpenAIEmbeddings, 
+        llm: BaseChatModel, 
+        embedder: Embeddings, 
         umls_api_key: Optional[str] = None,
         neo4j_creds: Optional[dict] = None,
     ):
