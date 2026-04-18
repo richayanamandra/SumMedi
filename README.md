@@ -73,5 +73,4 @@ Drag and drop unstructured clinical summaries, papers, or patient anonymized rep
 
 ---
 
-## ⚖️ License
-This project operates under the MIT License.
+
