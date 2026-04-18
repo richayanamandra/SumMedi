@@ -74,4 +74,4 @@ Drag and drop unstructured clinical summaries, papers, or patient anonymized rep
 ---
 
 ## ⚖️ License
-This project operates under the MIT License. Due to NIH restrictions, the raw UMLS datasets are **not** bundled in this repository. Users must license and obtain UMLS `.RRF` data directly from the National Library of Medicine. 
+This project operates under the MIT License.
