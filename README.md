@@ -1,76 +1,75 @@
-# MedGraphRAG 🧠🧬
+# SumMedi — Medical Text Summarization using Multi-Layer GraphRAG
 
-An advanced, locally hosted, Triple-Layer Medical Graph Retrieval-Augmented Generation (RAG) framework designed to eliminate hallucination in LLM healthcare interactions by rigorously anchoring semantic inferences to the authoritative UMLS (Unified Medical Language System) Knowledge Graph.
+This project is a research-driven implementation and extension of MedGraphRAG, a graph-based Retrieval-Augmented Generation (RAG) framework for safe, evidence-grounded medical QA systems.
 
-Based on the architecture proposed in *"Medical Graph RAG: Towards Safe Medical Large Language Model via Graph Retrieval-Augmented Generation"*, this implementation is scaled to natively support end-to-end local knowledge graph ingestion—bypassing rate limits and securely hosting tens of millions of authentic medical concepts exactly where you compute.
+## 🚀 What this project does
 
-## 🚀 Features
-
-- **Triple-Layer Graph Architecture:**
-  - **Layer 1 (Meta-MedGraphs):** Your personal documents & clinical notes structurally chunked and parsed automatically into entities and Semantic Triples.
-  - **Layer 2 (Domain Graph):** Broad medical texts, literature, and internal book repositories to anchor arbitrary LLM knowledge chunks.
-  - **Layer 3 (Core Medical Vocabulary):** High-density backbone powered by a specialized bulk importer capable of gracefully ingesting and indexing ~4M Nodes (concepts from `MRCONSO.RRF` and `MRSTY.RRF`) and ~60M+ Edges (ontologies from `MRREL.RRF`) into a local Neo4j Cluster seamlessly.
-- **U-Retrieval Routing:** Top-Down indexing combined with Bottom-Up semantic retrieval dynamically traverses your private Graph clustering structure, bypassing naive vector-similarity hallucinations.
-- **Intelligent Batch Stream Pipeline:** Features a hyper-optimized Python bulk ingester to map and merge massive multi-gigabyte NIH data distributions directly into Neo4j with exponential index tracking and streaming—bypassing memory overflow bugs native to smaller RAG attempts.
-- **Streamlit Analytics Dashboard:** Highly interactive analytical dashboard and control room for real-time document chunk evaluation, graphical layout mapping, and direct connection pipelines.
-
-## 🛠️ Architecture Stack
-- **Graph Database:** Neo4j (Cypher)
-- **Memory Construction:** NetworkX
-- **Orchestration:** LangChain
-- **Embeddings & LLM Generation:** OpenAI
-- **UI:** Streamlit
+- Implements a **Graph-based RAG pipeline** for medical text understanding
+- Replaces large proprietary datasets with **PubMed Central (PMC)**
+- Evaluates performance across **multiple LLMs (GPT, Gemini, Gemma, LLaMA)**
+- Focuses on **evidence-backed, explainable medical responses**
 
 ---
 
-## 🚦 System Requirements
+## 🎯 Key Contributions
 
-- **Python 3.10+**
-- **Neo4j Desktop / Server Setup** running locally (or remotely)
-- **UMLS Dataset Extracts** downloaded from the NIH National Library of Medicine. Specifically, you need `MRCONSO.RRF`, `MRSTY.RRF`, and `MRREL.RRF` extracted into the root of this project.
+- 🔬 **Multi-LLM Evaluation**  
+  Systematic comparison across GPT-4, Gemini, Gemma, and LLaMA variants
 
-## 📦 Installation
+- 📚 **Dataset Adaptation**  
+  Uses **PubMed Central (PMC)** instead of large-scale proprietary corpora
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/YourUsername/MedGraphRAG-Local.git
-   cd MedGraphRAG-Local
-   ```
+- 🧠 **Graph-based Reasoning**  
+  Implements **Multi-layer GraphRAG** with structured knowledge representation
 
-2. **Initialize Environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows use: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-
-3. **Configure the .env variables**
-   Create a `.env` file in the root directory:
-   ```env
-   OPENAI_API_KEY=sk-xxxx...
-   NEO4J_URI=bolt://127.0.0.1:7687
-   NEO4J_USER=neo4j
-   NEO4J_PASSWORD=my_secure_password
-   ```
+- ⚖️ **Architecture vs Model Study**  
+  Analyzes how retrieval architecture impacts performance across models
 
 ---
 
-## 💻 Running the Control Room
+## 🏗️ High-Level Architecture
+Documents → Graph Construction → Hierarchical Retrieval → LLM Response
 
-Simply boot the frontend:
-```bash
-streamlit run app.py
-```
-
-### 🗄️ Ingesting the UMLS Backbone (First Time Setup)
-1. Place the massive raw UMLS dump files `MRCONSO.RRF` and `MRSTY.RRF` directly into the root folder.
-2. In the Streamlit sidebar, select **"📥 Load Local UMLS Nodes"**. (This securely mounts ~4 million fundamental medical definitions tracking directly into your local database using `MERGE` properties + automatic cypher indexing to enforce `O(1)` inserts).
-3. Ensure `MRREL.RRF` is loaded in the root. 
-4. Select **"🔗 Load Local UMLS Relationships"**. The background memory processor will silently build a translation layer mapping the millions of numerical CUI IDs together, bridging up to ~65 Million ontological edges across your architecture in roughly 15 minutes. 
-
-### 📝 Processing Clinical Documents
-Drag and drop unstructured clinical summaries, papers, or patient anonymized reports into the primary document ingestor. The engine will chunk it, tag it against your massive Layer-3 backbone, and allow you to ask RAG questions with supreme accuracy and zero hallucination. 
+- Structured knowledge graphs replace flat vector retrieval
+- Enables **multi-hop reasoning** and **context-aware generation**
 
 ---
 
+## ⚙️ Models Used
 
+- GPT-4 and variants  
+- Gemini models  
+- Gemma  
+- LLaMA models  
+
+---
+
+## 📊 What is achieved
+
+- Improved **context grounding** over standard RAG  
+- Better **multi-hop reasoning capabilities**  
+- Reduced reliance on model scale via structured retrieval  
+- Evidence-backed response generation  
+
+---
+
+## 📌 Why this matters
+
+Medical AI systems require:
+- High accuracy  
+- Explainability  
+- Trustworthy sources  
+
+This project explores how **graph-based retrieval + LLMs** can move closer to reliable medical AI systems.
+
+---
+
+## 📂 Detailed Methodology
+
+👉 See [`idea_and_methodology.md`](./idea_and_methodology.md) for full technical details.
+
+---
+
+## 📚 Reference
+
+Medical Graph RAG: Towards Safe Medical LLM via Graph Retrieval-Augmented Generation
