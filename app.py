@@ -19,7 +19,7 @@ from med_graph_rag import MedGraphRAG, MEDICAL_TAGS
 # -------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="MedGraphRAG",
+    page_title="SumMedi",
     page_icon="🧬",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -165,7 +165,7 @@ neo4j_user = os.environ.get("NEO4J_USER", "neo4j")
 neo4j_pass = os.environ.get("NEO4J_PASSWORD", "password")
 
 if "med_rag" not in st.session_state:
-    llm = ChatOllama(model="gemma4:e2b", temperature=0.1)
+    llm = ChatOllama(model="gemma3:1b", temperature=0.1)
     embedder = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     neo4j_creds = {
         "uri": neo4j_uri,
@@ -189,7 +189,7 @@ rag: MedGraphRAG = st.session_state.med_rag
 # -------------------------------------------------------------------------
 
 with st.sidebar:
-    st.markdown("## 🧬 MedGraphRAG")
+    st.markdown("## 🧬 SumMedi")
     
     # Neo4j Status
     if st.session_state.med_rag.neo4j and st.session_state.med_rag.neo4j.driver:
@@ -235,7 +235,8 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown(f"### 🗂️ Global Knowledge")
-    st.metric("Medical Vocabulary (L3)", len(st.session_state.med_rag.repo_entities_l3))
+    l3_count = st.session_state.med_rag.neo4j.get_layer_count(3) if st.session_state.med_rag.neo4j else 0
+    st.metric("Medical Vocabulary (L3)", l3_count)
     st.caption("This knowledge base persists across documents.")
 
     seed_btn = st.button("🚀 Bulk Seed (Top 1000)", help="Fetches ~1000 medical concepts from UMLS (takes a few mins)")
@@ -249,8 +250,15 @@ with st.sidebar:
             status_text.caption(msg)
             
         st.session_state.med_rag.bulk_seed_vocabulary(terms, progress_callback=update_progress)
-        st.success("✅ Seeding complete!")
+        st.success("Seeding complete.")
         st.rerun()
+
+    # --- NEW: VECTOR INDEX BUTTON ---
+    vec_btn = st.button("🏗️ Initialize Vector Search Index", help="Creates a high-speed mathematical index in Neo4j (Needed ONLY ONCE)")
+    if vec_btn:
+        with st.spinner("Initializing Vector Index..."):
+            st.session_state.med_rag.neo4j.create_vector_index()
+            st.success("Vector Index ready! (Neo4j will process millions of nodes in the background)")
 
     import_btn = st.button("📥 Load Local UMLS Nodes", help="Imports MRCONSO.RRF and MRSTY.RRF to build vocabulary nodes")
     if import_btn:
@@ -377,18 +385,22 @@ with tab_query:
     if not st.session_state.build_stats:
         st.info("👈  Load documents and build the triple graph first.")
     else:
-        question = st.text_area(
+        st.markdown("### 🔍 Medical Query (U-Retrieval)")
+        st.caption("Ask questions about the patient case. The AI will traverse the 3-layer graph to find evidence.")
+        
+        q_input = st.text_area(
             "Medical question",
-            height=80,
-            placeholder="e.g. What medication adjustments should be made for a patient with COPD and heart failure?",
+            placeholder="e.g. What are the recognized treatments and risks for this patient?",
+            value=st.session_state.get("last_query", ""),
+            help="Type a clinical question here. The system will use the L1-L2-L3 links to provide an evidence-based answer."
         )
         col_btn, col_lvl = st.columns([2, 3])
         with col_btn:
             run_query = st.button("🔍 Run U-Retrieval", use_container_width=True)
 
-        if run_query and question.strip():
+        if run_query and q_input.strip():
             with st.spinner("Running U-Retrieval…"):
-                result = rag.query(question)
+                result = rag.query(q_input)
                 st.session_state.last_result = result
 
         if st.session_state.last_result:

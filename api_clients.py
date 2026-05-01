@@ -139,6 +139,126 @@ class Neo4jClient:
                 if not record or record["deleted_count"] == 0:
                     break
 
+    def get_entity_by_name(self, name: str) -> Optional[Entity]:
+        if not self.driver: return None
+        with self.driver.session() as session:
+            res = session.run("MATCH (n:Entity {name: $name}) RETURN n", name=name)
+            record = res.single()
+            if record:
+                n = record["n"]
+                return Entity(
+                    name=n["name"],
+                    entity_type=n["type"],
+                    context=n["context"],
+                    definition=n.get("definition", ""),
+                    layer=n["layer"]
+                )
+        return None
+
+    def find_similar_entities(self, query_name: str, layer: int, limit: int = 5, vector: list[float] = None) -> list[Entity]:
+        """
+        Hyper-scalable search: Uses Vector Index if available, 
+        otherwise falls back gracefully to fuzzy name search.
+        """
+        if not self.driver: return []
+        with self.driver.session() as session:
+            res = None
+            if vector and len(vector) > 0:
+                # Optimized Vector Search
+                query = (
+                    "CALL db.index.vector.queryNodes('entity_embeddings', $limit, $vector) "
+                    "YIELD node AS n, score "
+                    "WHERE n.layer = $layer "
+                    "RETURN n, score"
+                )
+                try:
+                    res = session.run(query, vector=vector, layer=layer, limit=limit)
+                    # We must consume/check at least one record to see if it failed
+                    entities = []
+                    for record in res:
+                        n = record["n"]
+                        entities.append(Entity(
+                            name=n["name"],
+                            entity_type=n.get("type", "Unknown"),
+                            context=n.get("context", ""),
+                            definition=n.get("definition", ""),
+                            layer=n["layer"]
+                        ))
+                    return entities
+                except Exception as e:
+                    # Fallback if index is not created yet
+                    if "no such vector schema index" in str(e).lower():
+                        pass 
+                    else:
+                        print(f"Vector search warning: {e}")
+
+            # Fallback to case-insensitive partial match
+            query = (
+                "MATCH (n:Entity) "
+                "WHERE n.layer = $layer AND n.name =~('(?i).*'+$name+'.*') "
+                "RETURN n LIMIT $limit"
+            )
+            res = session.run(query, name=query_name, layer=layer, limit=limit)
+            entities = []
+            for record in res:
+                n = record["n"]
+                entities.append(Entity(
+                    name=n["name"],
+                    entity_type=n.get("type", "Unknown"),
+                    context=n.get("context", ""),
+                    definition=n.get("definition", ""),
+                    layer=n["layer"]
+                ))
+            return entities
+
+    def create_vector_index(self, dimensions: int = 384):
+        """
+        Initialize the Neo4j Vector Index for medical entities.
+        """
+        if not self.driver: return
+        with self.driver.session() as session:
+            # Create vector index if not exists (Neo4j 5.15+ syntax)
+            query = f"""
+            CREATE VECTOR INDEX entity_embeddings IF NOT EXISTS
+            FOR (n:Entity) ON (n.embedding)
+            OPTIONS {{indexConfig: {{
+             `vector.dimensions`: {dimensions},
+             `vector.similarity_function`: 'cosine'
+            }}}}
+            """
+            try:
+                session.run(query)
+                print("✅ Neo4j Vector Index 'entity_embeddings' created/verified.")
+            except Exception as e:
+                print(f"Error creating Vector Index: {e}")
+
+    def get_neighbors(self, entity_name: str, hops: int = 2) -> list[Entity]:
+        if not self.driver: return []
+        with self.driver.session() as session:
+            query = (
+                "MATCH (s:Entity {name: $name})-[*1.."+str(hops)+"]-(t:Entity) "
+                "RETURN DISTINCT t"
+            )
+            res = session.run(query, name=entity_name)
+            entities = []
+            for record in res:
+                n = record["t"]
+                entities.append(Entity(
+                    name=n["name"],
+                    entity_type=n.get("type", "Unknown"),
+                    context=n.get("context", ""),
+                    definition=n.get("definition", ""),
+                    layer=n.get("layer", 1)
+                ))
+            return entities
+
+    def get_layer_count(self, layer: int) -> int:
+        if not self.driver: return 0
+        with self.driver.session() as session:
+            res = session.run("MATCH (n:Entity) WHERE n.layer = $layer RETURN count(n) AS c", layer=layer)
+            record = res.single()
+            return record["c"] if record else 0
+
     def sync_entities(self, entities: list[Entity]):
         if not self.driver: return
         with self.driver.session() as session:
@@ -210,3 +330,91 @@ class Neo4jClient:
                 )
             except Exception as e:
                 print(f"Neo4j Sync Cross-Layer Edge Error: {e}")
+    def get_unembedded_nodes(self, layer: int = None, limit: int = 100) -> list[Entity]:
+        """
+        Retrieves nodes that are missing vector embeddings.
+        """
+        if not self.driver: return []
+        with self.driver.session() as session:
+            where_clause = "WHERE n.embedding IS NULL"
+            if layer is not None:
+                where_clause += f" AND n.layer = {layer}"
+            
+            query = f"MATCH (n:Entity) {where_clause} RETURN n LIMIT $limit"
+            res = session.run(query, limit=limit)
+            entities = []
+            for record in res:
+                n = record["n"]
+                entities.append(Entity(
+                    name=n["name"],
+                    entity_type=n.get("type", "Unknown"),
+                    context=n.get("context", ""),
+                    definition=n.get("definition", ""),
+                    layer=n["layer"]
+                ))
+            return entities
+
+    def batch_update_embeddings(self, node_data: list[dict]):
+        """
+        High-speed batch update for embeddings.
+        node_data: list of {'name': str, 'embedding': list[float]}
+        """
+        if not self.driver or not node_data: return
+        with self.driver.session() as session:
+            query = (
+                "UNWIND $batch AS item "
+                "MATCH (n:Entity {name: item.name}) "
+                "SET n.embedding = item.embedding "
+                "RETURN count(*)"
+            )
+            try:
+                session.run(query, batch=node_data)
+            except Exception as e:
+                print(f"Batch Update Embeddings Error: {e}")
+    def get_unlinked_entities(self, source_layer: int, target_layer: int, limit: int = 100) -> list[Entity]:
+        """
+        Finds nodes in source_layer that do NOT have a LINK to target_layer.
+        Useful for bridging gaps between PubMed (L2) and UMLS (L3).
+        """
+        if not self.driver: return []
+        with self.driver.session() as session:
+            # Note: We ensure they HAVE an embedding before trying to link them
+            query = (
+                "MATCH (n:Entity {layer: $s_layer}) "
+                "WHERE n.embedding IS NOT NULL "
+                "AND NOT (n)-[:LINK]->(:Entity {layer: $t_layer}) "
+                "RETURN n LIMIT $limit"
+            )
+            res = session.run(query, s_layer=source_layer, t_layer=target_layer, limit=limit)
+            entities = []
+            for record in res:
+                n = record["n"]
+                import numpy as np
+                entities.append(Entity(
+                    name=n["name"],
+                    entity_type=n.get("type", "Unknown"),
+                    context=n.get("context", ""),
+                    definition=n.get("definition", ""),
+                    layer=n["layer"],
+                    embedding=np.array(n["embedding"], dtype=np.float32) if n.get("embedding") else None
+                ))
+            return entities
+
+    def sync_cross_layer_edges(self, edge_data: list[dict]):
+        """
+        Batch MERGE for cross-layer edges.
+        edge_data: list of {'source': str, 'target': str, 'type': str, 'similarity': float}
+        """
+        if not self.driver or not edge_data: return
+        with self.driver.session() as session:
+            query = (
+                "UNWIND $batch AS item "
+                "MATCH (s:Entity {name: item.source}), (t:Entity {name: item.target}) "
+                "MERGE (s)-[rel:LINK {type: item.type}]->(t) "
+                "SET rel.similarity = item.similarity "
+                "RETURN count(*)"
+            )
+            try:
+                session.run(query, batch=edge_data)
+            except Exception as e:
+                print(f"Batch Sync Cross-Layer Edges Error: {e}")

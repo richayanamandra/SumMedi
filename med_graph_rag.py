@@ -67,20 +67,10 @@ class MedGraphRAG:
         # Layer 1 – user RAG graphs
         self.meta_graphs: list[MetaMedGraph] = []
 
-        # Layer 2 – repository (paper) entities
-        self.repo_entities_l2: list[Entity] = []
-
-        # Layer 3 – vocabulary entities (pre-seeded with BUILTIN_VOCAB to act as a constant layout)
-        self.repo_entities_l3: list[Entity] = self._build_vocab_layer()
-        
-        # Initial sync of vocab to Neo4j
-        if self.neo4j:
-            self.neo4j.sync_entities(self.repo_entities_l3)
-
         # Hierarchical tag tree  [{graph_id: str, tags: dict, children: list}]
         self.tag_tree: list[dict] = []
 
-        # NetworkX graph for full triple structure
+        # NetworkX graph for Layer 1 only (keeps UI snappy for specific documents)
         self.nx_graph = nx.DiGraph()
 
     # ------------------------------------------------------------------
@@ -105,12 +95,16 @@ class MedGraphRAG:
         Seed Layer 3 with a specific list of medical terms.
         Falls back to BUILTIN_VOCAB if UMLS fails.
         """
+        if not self.neo4j:
+            print("⚠️ Neo4j not connected. Seeding vocabulary in-memory only (limited).")
+            return
+
         total = len(terms)
         for i, term in enumerate(terms):
-            # Duplicate check
-            if any(v.name.lower() == term.lower() for v in self.repo_entities_l3):
+            # Duplicate check – Database Native
+            if self.neo4j.get_entity_by_name(term):
                 if progress_callback:
-                    progress_callback(i + 1, total, f"⏩ Skipping (exists): {term}")
+                    progress_callback(i + 1, total, f"⏩ Skipping (exists in DB): {term}")
                 continue
 
             details = None
@@ -127,9 +121,7 @@ class MedGraphRAG:
                     definition=details["definition"],
                     layer=3,
                 )
-                self.repo_entities_l3.append(u_ent)
-                if self.neo4j:
-                    self.neo4j.sync_entities([u_ent])
+                self.neo4j.sync_entities([u_ent])
             else:
                 # Fallback to BUILTIN_VOCAB
                 for vocab in BUILTIN_VOCAB:
@@ -143,9 +135,7 @@ class MedGraphRAG:
                             definition=vocab["definition"],
                             layer=3,
                         )
-                        self.repo_entities_l3.append(u_ent)
-                        if self.neo4j:
-                            self.neo4j.sync_entities([u_ent])
+                        self.neo4j.sync_entities([u_ent])
                         break
 
     # ------------------------------------------------------------------
@@ -185,74 +175,35 @@ class MedGraphRAG:
     # Step 3 – Triple Linking  (L1 → L2 → L3)
     # ------------------------------------------------------------------
 
-    def _embed_all_layers(self):
-        """Ensure all layer-2 and layer-3 entities are embedded."""
-        for e in self.repo_entities_l2 + self.repo_entities_l3:
-            if e.embedding is None:
-                e.embedding = self.emb.embed(e.content_text)
-
     def _link_layers(self):
         """
-        For every Layer-1 entity, find sufficiently similar Layer-2 entities
-        and add 'the_reference_of' edges.  Then for each Layer-2 entity find
-        Layer-3 entities and add 'the_definition_of' edges.
+        Hyper-scalable linking: For every Layer-1 entity, query Neo4j 
+        to find Layer-2 and Layer-3 documents/concepts.
         """
-        self._embed_all_layers()
+        if not self.neo4j: return
 
-        # L1 → L2
+        # L1 → L2 & L1 → L3
         for mg in self.meta_graphs:
             for e1 in mg.entities:
-                if e1.embedding is None:
-                    continue
-                for e2 in self.repo_entities_l2:
-                    sim = self.emb.similarity(e1.embedding, e2.embedding)
-                    if sim >= self.SIMILARITY_THRESHOLD:
-                        if not self.nx_graph.has_node(e2.name):
-                            self.nx_graph.add_node(e2.name, entity=e2)
-                        self.nx_graph.add_edge(
-                            e1.name, e2.name,
-                            relation="the_reference_of",
-                            similarity=sim,
-                        )
-                        if self.neo4j:
-                            self.neo4j.add_cross_layer_edge(e1.name, e2.name, "the_reference_of", sim)
-
-        # L2 → L3
-        for e2 in self.repo_entities_l2:
-            if e2.embedding is None:
-                continue
-            for e3 in self.repo_entities_l3:
-                sim = self.emb.similarity(e2.embedding, e3.embedding)
-                if sim >= self.SIMILARITY_THRESHOLD:
-                    if not self.nx_graph.has_node(e3.name):
-                        self.nx_graph.add_node(e3.name, entity=e3)
-                    self.nx_graph.add_edge(
-                        e2.name, e3.name,
-                        relation="the_definition_of",
-                        similarity=sim,
-                    )
-                    if self.neo4j:
-                        self.neo4j.add_cross_layer_edge(e2.name, e3.name, "the_definition_of", sim)
-
-        # Also directly link L1 → L3 when there is no L2 (fallback)
-        for mg in self.meta_graphs:
-            for e1 in mg.entities:
-                if e1.embedding is None:
-                    continue
-                for e3 in self.repo_entities_l3:
-                    if self.nx_graph.has_edge(e1.name, e3.name):
-                        continue
-                    sim = self.emb.similarity(e1.embedding, e3.embedding)
-                    if sim >= self.SIMILARITY_THRESHOLD:
-                        if not self.nx_graph.has_node(e3.name):
-                            self.nx_graph.add_node(e3.name, entity=e3)
-                        self.nx_graph.add_edge(
-                            e1.name, e3.name,
-                            relation="the_definition_of",
-                            similarity=sim,
-                        )
-                        if self.neo4j:
-                            self.neo4j.add_cross_layer_edge(e1.name, e3.name, "the_definition_of", sim)
+                # Find similar in L2 (papers) using Vector Search
+                l2_sims = self.neo4j.find_similar_entities(e1.name, layer=2, limit=2, vector=e1.embedding.tolist())
+                for e2 in l2_sims:
+                    sim = self.emb.similarity(e1.embedding, self.emb.embed(e2.content_text))
+                    # Sync to DB
+                    self.neo4j.add_cross_layer_edge(e1.name, e2.name, "the_reference_of", sim)
+                    # Sync to local NetworkX for UI
+                    self.nx_graph.add_node(e2.name, entity=e2)
+                    self.nx_graph.add_edge(e1.name, e2.name, relation="the_reference_of", similarity=sim)
+                
+                # Find similar in L3 (vocab) using Vector Search
+                l3_sims = self.neo4j.find_similar_entities(e1.name, layer=3, limit=3, vector=e1.embedding.tolist())
+                for e3 in l3_sims:
+                    sim = self.emb.similarity(e1.embedding, self.emb.embed(e3.content_text))
+                    # Sync to DB
+                    self.neo4j.add_cross_layer_edge(e1.name, e3.name, "the_definition_of", sim)
+                    # Sync to local NetworkX for UI
+                    self.nx_graph.add_node(e3.name, entity=e3)
+                    self.nx_graph.add_edge(e1.name, e3.name, relation="the_definition_of", similarity=sim)
 
     # ------------------------------------------------------------------
     # Step 5 – Tag the graphs  (hierarchical clustering)
@@ -372,25 +323,11 @@ class MedGraphRAG:
         self, entity_name: str, k: int
     ) -> list[Entity]:
         """
-        Return all entities within k hops across all three graph layers
-        (following any edge type, including cross-layer links).
+        Neo4j-backed neighborhood traversal.
         """
-        neighbours: list[Entity] = []
-        try:
-            # BFS up to k hops in both directions
-            reachable = nx.single_source_shortest_path_length(
-                self.nx_graph.to_undirected(), entity_name, cutoff=k
-            )
-            for name, dist in reachable.items():
-                if name == entity_name or dist == 0:
-                    continue
-                node_data = self.nx_graph.nodes.get(name, {})
-                ent = node_data.get("entity")
-                if ent:
-                    neighbours.append(ent)
-        except Exception:
-            pass
-        return neighbours
+        if self.neo4j:
+            return self.neo4j.get_neighbors(entity_name, hops=k)
+        return []
 
     def query(self, question: str) -> dict:
         """
@@ -476,25 +413,20 @@ class MedGraphRAG:
         Returns a summary of what was built.
         """
         # --- Selective clearing ---
+        # We only clear L1 (the patient session) to avoid wiping the seeded L2/L3 repository.
         self.meta_graphs.clear()
-        self.repo_entities_l2.clear()
-        self.tag_tree.clear()
-
-        # Remove only L1 and L2 nodes from NetworkX
+        
+        # Remove only L1 nodes from current NetworkX session
         nodes_to_remove = [
             n for n, d in self.nx_graph.nodes(data=True)
-            if d.get("entity") and d.get("entity").layer in [1, 2]
+            if d.get("entity") and d.get("entity").layer == 1
         ]
         self.nx_graph.remove_nodes_from(nodes_to_remove)
 
         if self.neo4j:
-            self.neo4j.clear_db()
-
-        # We NO LONGER rebuild L3 here; it persists.
-        # But we ensure L3 nodes are in nx_graph for linking
-        for e3 in self.repo_entities_l3:
-            if not self.nx_graph.has_node(e3.name):
-                self.nx_graph.add_node(e3.name, entity=e3)
+            # Only delete L1 entities from Neo4j for this session
+            with self.neo4j.driver.session() as session:
+                session.run("MATCH (n:Entity) WHERE n.layer = 1 DETACH DELETE n")
 
         def _progress(msg: str):
             if progress_callback:
@@ -525,21 +457,16 @@ class MedGraphRAG:
                 for e in paper_entities:
                     e.layer = 2
                     e.embedding = self.emb.embed(e.content_text)
-                self.repo_entities_l2.extend(paper_entities)
                 
-                # Sync L2 to Neo4j
+                # Sync L2 to Neo4j – No local list extend
                 if self.neo4j:
                     self.neo4j.sync_entities(paper_entities)
                 
 
 
-        # --- Layer 3 already built (BUILTIN_VOCAB) ---
-        _progress("⚙️  Embedding Layer-3 vocabulary entities…")
-        for e in self.repo_entities_l3:
-            e.embedding = self.emb.embed(e.content_text)
-
         # --- Triple Linking ---
         _progress("🔗  Triple linking across graph layers…")
+        # Links L1 entries to the existing L2 (PubMed) and L3 (UMLS) repository in Neo4j
         self._link_layers()
 
         # --- Tag graphs ---
@@ -559,13 +486,17 @@ class MedGraphRAG:
             if d.get("relation") in ("the_reference_of", "the_definition_of")
         )
 
+        # Pull counts from Neo4j if available, otherwise fallback to 0
+        l2_count = self.neo4j.get_layer_count(2) if self.neo4j else 0
+        l3_count = self.neo4j.get_layer_count(3) if self.neo4j else 0
+
         return {
             "chunks": len(chunks),
             "meta_graphs": len(self.meta_graphs),
             "l1_entities": total_l1_entities,
             "l1_relationships": total_l1_rels,
-            "l2_entities": len(self.repo_entities_l2),
-            "l3_entities": len(self.repo_entities_l3),
+            "l2_entities": l2_count,
+            "l3_entities": l3_count,
             "cross_layer_edges": cross_layer_edges,
             "tag_tree_roots": len(self.tag_tree),
             "total_graph_nodes": self.nx_graph.number_of_nodes(),
@@ -573,11 +504,20 @@ class MedGraphRAG:
         }
 
     def get_graph_stats(self) -> dict:
+        if self.neo4j:
+            return {
+                "meta_graphs": len(self.meta_graphs),
+                "l1_entities": self.neo4j.get_layer_count(1),
+                "l2_entities": self.neo4j.get_layer_count(2),
+                "l3_entities": self.neo4j.get_layer_count(3),
+                "total_nodes": self.neo4j.get_layer_count(1) + self.neo4j.get_layer_count(2) + self.neo4j.get_layer_count(3),
+                "total_edges": 0 # TODO: count relationships in DB
+            }
         return {
             "meta_graphs": len(self.meta_graphs),
             "l1_entities": sum(len(mg.entities) for mg in self.meta_graphs),
-            "l2_entities": len(self.repo_entities_l2),
-            "l3_entities": len(self.repo_entities_l3),
+            "l2_entities": 0,
+            "l3_entities": 0,
             "total_nodes": self.nx_graph.number_of_nodes(),
             "total_edges": self.nx_graph.number_of_edges(),
         }
@@ -587,8 +527,6 @@ class MedGraphRAG:
         Clears all graph data globally from memory and Neo4j.
         """
         self.meta_graphs.clear()
-        self.repo_entities_l2.clear()
-        self.repo_entities_l3.clear()
         self.tag_tree.clear()
         self.nx_graph.clear()
         if self.neo4j:
@@ -642,8 +580,6 @@ class MedGraphRAG:
             except Exception as e:
                 print(f"Embedding batch failed: {e}")
             
-            self.repo_entities_l3.extend(batch_entities)
-            
             if self.neo4j:
                 self.neo4j.sync_entities(batch_entities)
                 # Ensure we add mock relationships sequentially so the graph structure exists.
@@ -678,3 +614,73 @@ class MedGraphRAG:
         pwd = self.neo4j_creds.get("password")
         
         return load_umls_to_neo4j(mrconso_path, mrsty_path, uri, user, pwd, progress_callback)
+
+    def load_reference_papers(self, paper_texts: list[str], progress_callback=None, max_workers: int = 1):
+        """
+        Additively load medical paper entities into Layer 2 with batch optimization and optional parallelism.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _progress(msg: str):
+            if progress_callback:
+                progress_callback(msg)
+
+        total = len(paper_texts)
+        if total == 0:
+            return
+
+        def process_paper(paper):
+            try:
+                # 1. Extract entities (truncate to avoid token limits)
+                paper_entities = _extract_entities(self.llm, paper[:4000])
+                for e in paper_entities:
+                    e.layer = 2
+                
+                # 2. Batch embedding for this paper's entities
+                texts = [e.context for e in paper_entities]
+                embeddings = self.emb.embed_batch(texts)
+                for e, vec in zip(paper_entities, embeddings):
+                    e.embedding = vec
+                
+                # 3. Extract internal relationships for Layer 2
+                paper_relationships = _extract_relationships(self.llm, paper[:4000], paper_entities)
+                
+                return paper_entities, paper_relationships
+            except Exception as e:
+                return e
+
+        all_new_entities = []
+        all_new_rels = []
+        _progress(f"🚀 Starting parallel ingestion with {max_workers} workers...")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_paper = {executor.submit(process_paper, paper): i for i, paper in enumerate(paper_texts)}
+            
+            for future in as_completed(future_to_paper):
+                i = future_to_paper[future]
+                result = future.result()
+                
+                if isinstance(result, tuple) and len(result) == 2:
+                    entities, relationships = result
+                    all_new_entities.extend(entities)
+                    all_new_rels.extend(relationships)
+                    _progress(f"✅ Processed paper {i+1}/{total} ({len(entities)} ents, {len(relationships)} rels)")
+                else:
+                    _progress(f"⚠️  Error on paper {i+1}: {result}")
+
+                # Periodic sync to Neo4j to keep memory low
+                if len(all_new_entities) >= 100:
+                    if self.neo4j:
+                        self.neo4j.sync_entities(all_new_entities)
+                        self.neo4j.sync_relationships(all_new_rels)
+                    all_new_entities = []
+                    all_new_rels = []
+        
+        # Final sync
+        if self.neo4j:
+            if all_new_entities:
+                self.neo4j.sync_entities(all_new_entities)
+            if all_new_rels:
+                self.neo4j.sync_relationships(all_new_rels)
+        
+        _progress(f"🎉 Finished importing {total} papers into Layer 2.")

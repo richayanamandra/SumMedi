@@ -18,7 +18,7 @@ Based on the architecture proposed in *"Medical Graph RAG: Towards Safe Medical 
 - **Graph Database:** Neo4j (Cypher)
 - **Memory Construction:** NetworkX
 - **Orchestration:** LangChain
-- **Embeddings & LLM Generation:** OpenAI
+- **Embeddings & LLM Generation:** OpenAI/Gemma/Gemini/Llama
 - **UI:** Streamlit
 
 ---
@@ -72,5 +72,8 @@ streamlit run app.py
 Drag and drop unstructured clinical summaries, papers, or patient anonymized reports into the primary document ingestor. The engine will chunk it, tag it against your massive Layer-3 backbone, and allow you to ask RAG questions with supreme accuracy and zero hallucination. 
 
 ---
+
+## 📚 Reference
+Medical Graph RAG: Towards Safe Medical LLM via Graph Retrieval-Augmented Generation
 
 

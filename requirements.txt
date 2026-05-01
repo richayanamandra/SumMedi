@@ -1,10 +1,9 @@
 streamlit
 pyvis
-langchain
-langchain-community
-langchain-openai
-langchain-huggingface
 langchain-ollama
+langchain-huggingface
+langchain-community
+langchain-text-splitters
 python-dotenv
 neo4j
 sentence-transformers
@@ -12,3 +11,4 @@ networkx
 numpy
 scipy
 torch
+biopython

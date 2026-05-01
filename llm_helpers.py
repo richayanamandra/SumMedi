@@ -9,28 +9,42 @@ from data_models import Entity, Relationship, MetaMedGraph, UMLS_SEMANTIC_TYPES,
 
 from typing import Any
 
+import threading
+
 class EmbeddingStore:
     def __init__(self, embedder: Any):
         self._emb = embedder
         self._cache: dict[str, np.ndarray] = {}
+        self._lock = threading.Lock()
 
     def embed(self, text: str) -> np.ndarray:
-        if text not in self._cache:
-            vec = self._emb.embed_query(text)
-            self._cache[text] = np.array(vec, dtype=np.float32)
-        return self._cache[text]
+        with self._lock:
+            if text in self._cache:
+                return self._cache[text]
+        
+        vec = self._emb.embed_query(text)
+        arr = np.array(vec, dtype=np.float32)
+        
+        with self._lock:
+            self._cache[text] = arr
+        return arr
 
     def embed_batch(self, texts: list[str]) -> list[np.ndarray]:
-        uncached = [t for t in set(texts) if t and t not in self._cache]
+        with self._lock:
+            uncached = [t for t in set(texts) if t and t not in self._cache]
+        
         if uncached:
             if hasattr(self._emb, 'embed_documents'):
                 vecs = self._emb.embed_documents(uncached)
-                for t, v in zip(uncached, vecs):
-                    self._cache[t] = np.array(v, dtype=np.float32)
+                with self._lock:
+                    for t, v in zip(uncached, vecs):
+                        self._cache[t] = np.array(v, dtype=np.float32)
             else:
                 for t in uncached:
                     self.embed(t)
-        return [self._cache[t] if t else None for t in texts]
+        
+        with self._lock:
+            return [self._cache[t] if t else None for t in texts]
 
 
     def similarity(self, a: str | np.ndarray, b: str | np.ndarray) -> float:
@@ -42,20 +56,43 @@ class EmbeddingStore:
 
 
 def _call_llm_json(llm: BaseChatModel, prompt: str) -> dict | list:
-    """Call LLM and parse JSON from the response."""
-    resp = llm.invoke(prompt)
-    raw = resp.content.strip()
-    # strip markdown fences
-    raw = re.sub(r"^```(?:json)?\s*", "", raw)
-    raw = re.sub(r"\s*```$", "", raw)
+    """Call LLM and parse JSON from the response with robustness for small models."""
+    try:
+        resp = llm.invoke(prompt)
+        raw = resp.content.strip()
+    except Exception as e:
+        print(f"LLM Call Error: {e}")
+        return []
+    
+    # Pre-clean: remove markdown fences
+    raw = re.sub(r"```(json)?", "", raw, flags=re.IGNORECASE)
+    raw = raw.strip("`").strip()
+
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        # try to extract first JSON object/array
-        m = re.search(r"(\{.*\}|\[.*\])", raw, re.DOTALL)
-        if m:
-            return json.loads(m.group(1))
-        return {}
+        # Fallback 1: Extract anything between the first [ and last ] or first { and last }
+        # This handles models that add conversational text around the JSON
+        list_match = re.search(r"(\[.*\])", raw, re.DOTALL)
+        dict_match = re.search(r"(\{.*\})", raw, re.DOTALL)
+        
+        target = None
+        if list_match and dict_match:
+             target = list_match.group(1) if list_match.start() < dict_match.start() else dict_match.group(1)
+        elif list_match:
+             target = list_match.group(1)
+        elif dict_match:
+             target = dict_match.group(1)
+            
+        if target:
+            try:
+                # Cleanup: handle common small model mishaps
+                clean = re.sub(r",\s*([\]\}])", r"\1", target) # trailing commas
+                return json.loads(clean)
+            except:
+                pass
+        
+        return []
 
 
 def _extract_entities(llm: BaseChatModel, chunk_text: str) -> list[Entity]:
@@ -63,12 +100,23 @@ def _extract_entities(llm: BaseChatModel, chunk_text: str) -> list[Entity]:
     prompt = textwrap.dedent(f"""
         You are a biomedical NLP expert. Extract all medically relevant entities from the text below.
 
-        For each entity return a JSON object with keys:
-          - "name": the entity name (string)
-          - "type": one of [{semantic_types_str}]
-          - "context": 1-2 sentence contextual description based on the text
+        FORMAT RULES:
+        - Return ONLY a JSON array.
+        - "name": Use the specific medical/chemical name (e.g., "Metformin").
+        - "type": Choose ONLY from this list: [{semantic_types_str}]
+        - "context": A 1-2 sentence description from the text.
 
-        Return ONLY a JSON array of these objects, nothing else. No markdown, no explanation.
+        EXAMPLES:
+        Input: "Patient is taking 500mg of Aspirin for heart pain."
+        Output: [
+            {{"name": "Aspirin", "type": "Pharmacologic Substance", "context": "Patient takes 500mg for heart pain"}},
+            {{"name": "Heart pain", "type": "Finding", "context": "Reason for taking aspirin"}}
+        ]
+
+        Input: "She has been diagnosed with Malaria."
+        Output: [
+            {{"name": "Malaria", "type": "Disease or Syndrome", "context": "The patient's primary diagnosis"}}
+        ]
 
         TEXT:
         {chunk_text}
