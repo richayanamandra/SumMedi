@@ -1,4 +1,4 @@
-# SUMMEDI Project: Advanced Medical Triple-layer Graph RAG Framework
+# SumMedi: Advanced Medical Triple-layer Graph RAG Framework
 
 This project implements an advanced, database-native Retrieval-Augmented Generation (RAG) architecture tailored specifically for the medical domain, ensuring safe, evidence-grounded clinical question answering by linking user queries to established medical literature and controlled vocabularies.
 
@@ -28,7 +28,7 @@ The SumMedi pipeline processes information in two primary phases:
    - **Bottom-Up Refinement:** Forms a localized context of triplets and neighboring nodes, then traverses back up the tree to refine the context before generating the final evidence-grounded LLM response.
 
 
-## 📊 MedQA Benchmark Results
+## 📊 Results and Achievements
 Our architecture was rigorously evaluated on the USMLE-style MedQA dataset, demonstrating substantial improvements in diagnostic reasoning and accuracy:
 - **GPT-4** achieved **96%** accuracy, surpassing state-of-the-art benchmarks on MedQA with the GraphRAG pipeline.
 - **Gemma4:31b-cloud** achieved **90%** accuracy when utilizing our medical graph pipeline, showing a significant improvement over its **83%** baseline accuracy without the pipeline.
